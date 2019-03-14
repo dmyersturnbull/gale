@@ -1,0 +1,50 @@
+package kokellab.gale
+
+import breeze.stats.distributions.RandBasis
+import org.parboiled2._
+
+object IfElseRealNumberGrammar {
+
+	def eval(expression: String, tolerance: Double = BooleanRealNumberGrammar.DEFAULT_TOLERANCE, randBasis: Option[RandBasis] = None): Option[Double] = {
+		val functions = randBasis map (rb => RealNumberGrammar.defaultFunctionMap ++ RealNumberGrammar.stochasticFunctionMap(rb)) getOrElse RealNumberGrammar.defaultFunctionMap
+		call[Option[Double], IfElseRealNumberGrammar](e => new IfElseRealNumberGrammar(e, tolerance, randBasis, functions), p => p.ifElseLine.run().get, expression)
+	}
+}
+
+class IfElseRealNumberGrammar(override val input: ParserInput,
+		tolerance: Double = BooleanRealNumberGrammar.DEFAULT_TOLERANCE, randBasis: Option[RandBasis] = None,
+		functions: Map[String, Seq[Double] => Double] = RealNumberGrammar.defaultFunctionMap
+) extends BooleanRealNumberGrammar(input, tolerance, randBasis, functions) {
+
+	protected def ifElseLine: Rule1[Option[Double]] = rule { ifElse ~ EOI }
+
+	protected def ifElse: Rule1[Option[Double]] = rule { someExpression | ifElifElse }
+
+	protected def ifElifElse: Rule1[Option[Double]] = rule {
+		ifElif ~ elseExpr ~> ((a: Option[Double], b: Option[Double]) => if (a.isDefined) a else if (b.isDefined) b else None)
+	}
+
+	protected def elseExpr: Rule1[Option[Double]] = rule {
+		optional("else:" ~ ifElse) ~> ((value: Option[Option[Double]]) => if (value.isDefined) value.get else None)
+	}
+
+	protected def ifElif: Rule1[Option[Double]] = rule {
+		"if" ~ conditionRule ~ elifs ~> ((a: Option[Double], b: Option[Double]) => if (a.isDefined) a else if (b.isDefined) b else None)
+	}
+
+	/**
+	  * Collapses any number of elif statements and returns the first one that matches, or None otherwise
+	  */
+	protected def elifs: Rule1[Option[Double]] = rule {
+		zeroOrMore("elif" ~ conditionRule) ~> ((list: Seq[Option[Double]]) => list.flatten.headOption)
+	}
+
+	/**
+	  * Just to be used in if-elif-else
+	  */
+	protected def someExpression: Rule1[Option[Double]] = rule { expression ~> ((d: Double) => Some(d)) }
+
+	protected def conditionRule: Rule1[Option[Double]] = rule {
+		booleanExpression ~ ":" ~ ifElse ~> ((boolean: Boolean, value: Option[Double]) => if (boolean && value.isDefined) Some(value.get) else None)
+	}
+}
